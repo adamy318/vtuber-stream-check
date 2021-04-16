@@ -1,16 +1,44 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
+	"os"
+	"strings"
+
+	//"net/http"
 
 	"google.golang.org/api/option"
 	youtube "google.golang.org/api/youtube/v3"
 )
+
+type Liver struct {
+	Name string `json:"name,omniempty"`
+
+	Slug string `json:"slug,omniempty"`
+
+	Affiliation string `json:"affiliation,omniempty"`
+
+	EnglishName string `json:"english_name,omniempty"`
+
+	YoutubeURL string `json:"youtube_ch,omniempty"`
+
+	TwitterURL string `json:"twitter,omniempty"`
+}
+
+type Video struct {
+	Title string
+
+	URL string
+}
+
+type Service struct {
+	*youtube.Service
+}
 
 var (
 	query      = flag.String("query", "Google", "Search term")
@@ -19,9 +47,45 @@ var (
 
 //func getChannel(client *http.Client)
 
-func main() {
+func makeLiverData() map[string]Liver {
 
-	apiKey, err := ioutil.ReadFile("./secrets/youtube_api_key")
+	liverData := make(map[string]Liver)
+
+	file, err := os.Open("livers.txt")
+	if err != nil {
+		log.Fatalf("failed to open file")
+	}
+
+	scanner := bufio.NewScanner(file)
+	scanner.Split(bufio.ScanLines)
+
+	var lines []string
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	file.Close()
+
+	for _, line := range lines {
+		var liver Liver
+
+		info := strings.SplitN(line, ":", 2)
+		err = json.Unmarshal([]byte(info[1]), &liver)
+		if err != nil {
+			fmt.Println(err)
+		}
+		liverData[info[0]] = liver
+	}
+
+	return liverData
+}
+
+func getYoutubeChannelID(liver Liver) string {
+	ch := strings.Split(liver.YoutubeURL, "/")
+	return ch[len(ch)-1]
+}
+
+func initializeYoutubeService() *Service {
+	apiKey, err := os.ReadFile("./secrets/youtube_api_key")
 	if err != nil {
 		log.Fatalf("error reading file: %v", err)
 	}
@@ -30,43 +94,65 @@ func main() {
 	if err != nil {
 		log.Fatalf("error creating youtube client: %v", err)
 	}
-	call := service.Search.List([]string{"id,snippet"}).Q("cat").MaxResults(25)
+	return &Service{service}
+}
+
+func (s *Service) getUpcomingStreams(liverName string, channelId string) map[string][]Video {
+	upcomingStreams := make(map[string][]Video)
+
+	call := s.Search.List([]string{"id,snippet"}).ChannelId(channelId).Order("date").MaxResults(10)
 	response, err := call.Do()
-	//fmt.Println(response)
 	if err != nil {
 		log.Fatal("bad call")
 	}
 
-	// Group video, channel, and playlist results in separate lists.
-	videos := make(map[string]string)
-	channels := make(map[string]string)
-	playlists := make(map[string]string)
-
-	// Iterate through each item and add it to the correct list.
 	for _, item := range response.Items {
-		switch item.Id.Kind {
-		case "youtube#video":
-			videos[item.Id.VideoId] = item.Snippet.Title
-		case "youtube#channel":
-			channels[item.Id.ChannelId] = item.Snippet.Title
-		case "youtube#playlist":
-			playlists[item.Id.PlaylistId] = item.Snippet.Title
+		if item.Id.Kind == "youtube#video" && item.Snippet.LiveBroadcastContent == "upcoming" {
+			video := Video{
+				Title: item.Snippet.Title,
+				URL:   makeYoutubeVideoURL(item.Id.VideoId),
+			}
+			if streams, ok := upcomingStreams[liverName]; ok {
+				upcomingStreams[liverName] = append(streams, video)
+			} else {
+				upcomingStreams[liverName] = []Video{video}
+			}
 		}
 	}
-
-	printIDs("Videos", videos)
-	printIDs("Channels", channels)
-	printIDs("Playlists", playlists)
-
-	fmt.Println("yes")
-	http.Handle("/", http.FileServer(http.Dir("./views")))
-	http.ListenAndServe(":3000", nil)
+	return upcomingStreams
 }
 
-func printIDs(sectionName string, matches map[string]string) {
-	fmt.Printf("%v:\n", sectionName)
-	for id, title := range matches {
-		fmt.Printf("[%v] %v\n", id, title)
+func makeYoutubeVideoURL(videoId string) string {
+	return "https://www.youtube.com/watch?v=" + videoId
+}
+
+func youtubeTest() {
+
+	liverData := makeLiverData()
+
+	service := initializeYoutubeService()
+
+	streams := service.getUpcomingStreams("chihiro-yuki", getYoutubeChannelID(liverData["chihiro-yuki"]))
+	printStreams(streams)
+
+}
+
+func main() {
+
+	youtubeTest()
+
+	//http.Handle("/", http.FileServer(http.Dir("./views")))
+	//http.ListenAndServe(":3000", nil)
+}
+
+func printStreams(streams map[string][]Video) {
+	fmt.Printf("%v:\n", "Upcoming")
+	for name, streams := range streams {
+		fmt.Printf("%v:\n", name)
+		for _, stream := range streams {
+			fmt.Printf("Title: %v URL: %v\n", stream.Title, stream.URL)
+		}
+		fmt.Println()
 	}
 	fmt.Printf("\n\n")
 }

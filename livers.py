@@ -21,11 +21,11 @@ def main():
     response = requests.get('https://www.nijisanji.jp/_next/data/AssLCig6Qu-ghaLHbaxgh/members/kuzuha.json')
     initialLiver = response.json()['pageProps']['liver']
 
-    liversData = {"kuzuha": 
+    liversData = {"kuzuha":
                     {
                         "name": initialLiver['name'],
                         "slug": initialLiver['slug'],
-                        "affiliation": initialLiver['affiliation'],
+                        "affiliation": initialLiver['affiliation'][0],
                         "english_name": initialLiver['english_name'],
                         "youtube_ch": initialLiver['social_links']['youtube'],
                         "twitter": initialLiver['social_links']['twitter']
@@ -50,7 +50,7 @@ def main():
             slug = liver['slug']
             enName = liverData['english_name']
 
-            affiliation = liverData['affiliation']
+            affiliation = liverData['affiliation'][0]
             socials = liverData['social_links']
             youtube = ""
             twitter = ""
@@ -60,15 +60,12 @@ def main():
                 twitter = socials['twitter']
 
             newData = { 
-                slug: 
-                {
                     "name": jpName,
                     "slug": slug,
                     "english_name": enName,
                     "affiliation": affiliation,
                     "youtube_ch": youtube,
                     "twitter": twitter
-                }
             }
 
             allLivers.append(slug)
