@@ -80,6 +80,9 @@ func makeLiverData() map[string]Liver {
 }
 
 func getYoutubeChannelID(liver Liver) string {
+	if liver.YoutubeURL == "" {
+		return ""
+	}
 	ch := strings.Split(liver.YoutubeURL, "/")
 	return ch[len(ch)-1]
 }
@@ -97,30 +100,40 @@ func initializeYoutubeService() *Service {
 	return &Service{service}
 }
 
-func (s *Service) getUpcomingStreams(liverName string, channelId string) map[string][]Video {
+// TODO figure out how to use less calls to API (maybe use eventType parameter to call once then search)
+func (s *Service) getUpcomingStreams(liverData map[string]Liver) map[string][]Video {
 	upcomingStreams := make(map[string][]Video)
 
-	call := s.Search.List([]string{"id,snippet"}).ChannelId(channelId).Order("date").MaxResults(10)
-	response, err := call.Do()
-	if err != nil {
-		log.Fatal("bad call")
-	}
+	for liver, data := range liverData {
+		channelId := getYoutubeChannelID(data)
+		if channelId != "" {
+			call := s.Search.List([]string{"id,snippet"}).ChannelId(channelId).Order("date").MaxResults(50)
+			response, err := call.Do()
+			if err != nil {
+				log.Fatal(err)
+			}
 
-	for _, item := range response.Items {
-		if item.Id.Kind == "youtube#video" && item.Snippet.LiveBroadcastContent == "upcoming" {
-			video := Video{
-				Title: item.Snippet.Title,
-				URL:   makeYoutubeVideoURL(item.Id.VideoId),
+			for _, item := range response.Items {
+				if item.Id.Kind == "youtube#video" && item.Snippet.LiveBroadcastContent == "upcoming" {
+					video := Video{
+						Title: item.Snippet.Title,
+						URL:   makeYoutubeVideoURL(item.Id.VideoId),
+					}
+					if streams, ok := upcomingStreams[liver]; ok {
+						upcomingStreams[liver] = append(streams, video)
+					} else {
+						upcomingStreams[liver] = []Video{video}
+					}
+				}
 			}
-			if streams, ok := upcomingStreams[liverName]; ok {
-				upcomingStreams[liverName] = append(streams, video)
-			} else {
-				upcomingStreams[liverName] = []Video{video}
-			}
+
 		}
+
 	}
 	return upcomingStreams
 }
+
+//func (s *Service) findVideosByChannelId()
 
 func makeYoutubeVideoURL(videoId string) string {
 	return "https://www.youtube.com/watch?v=" + videoId
@@ -132,7 +145,7 @@ func youtubeTest() {
 
 	service := initializeYoutubeService()
 
-	streams := service.getUpcomingStreams("chihiro-yuki", getYoutubeChannelID(liverData["chihiro-yuki"]))
+	streams := service.getUpcomingStreams(liverData)
 	printStreams(streams)
 
 }
@@ -146,7 +159,7 @@ func main() {
 }
 
 func printStreams(streams map[string][]Video) {
-	fmt.Printf("%v:\n", "Upcoming")
+	fmt.Printf("%v:\n\n", "Upcoming")
 	for name, streams := range streams {
 		fmt.Printf("%v:\n", name)
 		for _, stream := range streams {

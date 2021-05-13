@@ -1,10 +1,10 @@
 #!/bin/python3
 
+# script to dump all json data into file
+
 import requests
 import time
 import json
-import pickle
-
 
 def getLiverData(url):
     response = requests.get(url)
